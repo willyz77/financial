@@ -67,9 +67,9 @@
   .cloud-card {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 16px;
-    padding: 16px 18px;
+    padding: 12px 14px;
     margin-bottom: 18px;
     background: linear-gradient(135deg, rgba(18, 32, 39, 0.96) 0%, rgba(29, 55, 64, 0.96) 100%);
     color: #fff;
@@ -79,30 +79,6 @@
 
   .cloud-card.hidden {
     display: none;
-  }
-
-  .cloud-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .cloud-eyebrow {
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: rgba(255,255,255,0.64);
-  }
-
-  .cloud-title {
-    font-size: 15px;
-    font-weight: 800;
-  }
-
-  .cloud-desc {
-    font-size: 12px;
-    color: rgba(255,255,255,0.75);
   }
 
   .cloud-actions,
@@ -697,8 +673,7 @@
     .topbar { padding: 0 16px; }
     .container { padding: 20px 14px 88px; }
     .cloud-card {
-      align-items: stretch;
-      flex-direction: column;
+      justify-content: center;
     }
     .cloud-actions {
       width: 100%;
@@ -745,11 +720,6 @@
 
 <div class="container">
   <div class="cloud-card" id="cloudCard">
-    <div class="cloud-copy">
-      <div class="cloud-eyebrow">Cloud Save</div>
-      <div class="cloud-title">Simpan budget ke akun Google</div>
-      <div class="cloud-desc">Login supaya data tersinkron otomatis antar device dan tetap aman saat buka di Vercel atau Android.</div>
-    </div>
     <div class="cloud-actions">
       <div class="auth-bar">
         <div class="auth-pill" id="authPill">
