@@ -64,7 +64,49 @@
     font-weight: 600;
   }
 
-  .month-meta {
+  .cloud-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(18, 32, 39, 0.96) 0%, rgba(29, 55, 64, 0.96) 100%);
+    color: #fff;
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .cloud-card.hidden {
+    display: none;
+  }
+
+  .cloud-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .cloud-eyebrow {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(255,255,255,0.64);
+  }
+
+  .cloud-title {
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .cloud-desc {
+    font-size: 12px;
+    color: rgba(255,255,255,0.75);
+  }
+
+  .cloud-actions,
+  .auth-bar {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -94,6 +136,42 @@
   .sync-badge.syncing .sync-dot { background: #ffd166; }
   .sync-badge.offline .sync-dot,
   .sync-badge.error .sync-dot { background: #ff7b72; }
+
+  .auth-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.92);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .auth-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: rgba(255,255,255,0.18);
+  }
+
+  .auth-btn {
+    border: none;
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+  }
+
+  .auth-btn:hover {
+    background: rgba(255,255,255,0.2);
+  }
 
   .month-nav button,
   .icon-btn,
@@ -618,8 +696,22 @@
   @media (max-width: 700px) {
     .topbar { padding: 0 16px; }
     .container { padding: 20px 14px 88px; }
-    .month-meta { gap: 8px; }
-    .sync-badge { display: none; }
+    .cloud-card {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .cloud-actions {
+      width: 100%;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .sync-badge {
+      display: inline-flex;
+      justify-content: center;
+    }
+    .auth-pill {
+      justify-content: center;
+    }
     .summary-cards,
     .analytics-grid,
     .daily-metrics { grid-template-columns: 1fr; }
@@ -644,20 +736,35 @@
 
 <div class="topbar">
   <div class="logo">Duit<em>Ku</em></div>
-  <div class="month-meta">
-    <div class="sync-badge syncing" id="syncBadge">
-      <span class="sync-dot"></span>
-      <span id="syncStatus">Menghubungkan Firebase...</span>
-    </div>
-    <div class="month-nav">
-      <button type="button" onclick="changeMonth(-1)">&lt;</button>
-      <span id="monthLabel">-</span>
-      <button type="button" onclick="changeMonth(1)">&gt;</button>
-    </div>
+  <div class="month-nav">
+    <button type="button" onclick="changeMonth(-1)">&lt;</button>
+    <span id="monthLabel">-</span>
+    <button type="button" onclick="changeMonth(1)">&gt;</button>
   </div>
 </div>
 
 <div class="container">
+  <div class="cloud-card" id="cloudCard">
+    <div class="cloud-copy">
+      <div class="cloud-eyebrow">Cloud Save</div>
+      <div class="cloud-title">Simpan budget ke akun Google</div>
+      <div class="cloud-desc">Login supaya data tersinkron otomatis antar device dan tetap aman saat buka di Vercel atau Android.</div>
+    </div>
+    <div class="cloud-actions">
+      <div class="auth-bar">
+        <div class="auth-pill" id="authPill">
+          <img class="auth-avatar" id="authAvatar" alt="" style="display:none">
+          <span id="authLabel">Belum terhubung</span>
+        </div>
+        <button type="button" class="auth-btn" id="authAction" onclick="signInGoogle()">Login with Google</button>
+      </div>
+      <div class="sync-badge syncing" id="syncBadge">
+        <span class="sync-dot"></span>
+        <span id="syncStatus">Menghubungkan Firebase...</span>
+      </div>
+    </div>
+  </div>
+
   <div class="summary-cards">
     <div class="sum-card income">
       <div class="sum-label">Pemasukan</div>
@@ -816,6 +923,14 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut
+} from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-auth.js';
 
 const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const categoryOptions = {
@@ -848,18 +963,19 @@ const firebaseConfig = {
 };
 
 const storageKey = 'duitku-budget-planner-v1';
-const plannerDocPath = ['budgetPlanners', 'shared-default'];
 let currentDate = new Date();
 let txnType = 'income';
 let activeTab = 'overview';
 let idCounter = 20;
 let transactions = loadLocalCache();
 let db;
-let plannerRef;
+let auth;
+let currentUser = null;
+let unsubscribePlanner = null;
 
 const app = initializeApp(firebaseConfig);
 db = getFirestore(app);
-plannerRef = doc(db, ...plannerDocPath);
+auth = getAuth(app);
 
 window.changeMonth = changeMonth;
 window.openForm = openForm;
@@ -869,6 +985,8 @@ window.toggleAccordion = toggleAccordion;
 window.addTxn = addTxn;
 window.setType = setType;
 window.delTxn = delTxn;
+window.signInGoogle = signInGoogle;
+window.signOutGoogle = signOutGoogle;
 
 function cloneData(data) {
   return JSON.parse(JSON.stringify(data));
@@ -920,6 +1038,39 @@ function setSyncStatus(state, label) {
   const text = document.getElementById('syncStatus');
   badge.className = `sync-badge ${state}`;
   text.textContent = label;
+}
+
+function setAuthUI(user) {
+  const cloudCard = document.getElementById('cloudCard');
+  const avatar = document.getElementById('authAvatar');
+  const label = document.getElementById('authLabel');
+  const action = document.getElementById('authAction');
+
+  if (user) {
+    cloudCard.classList.add('hidden');
+    label.textContent = user.displayName || user.email || 'Google User';
+    action.textContent = 'Logout';
+    action.onclick = signOutGoogle;
+    if (user.photoURL) {
+      avatar.src = user.photoURL;
+      avatar.style.display = 'block';
+    } else {
+      avatar.removeAttribute('src');
+      avatar.style.display = 'none';
+    }
+    return;
+  }
+
+  cloudCard.classList.remove('hidden');
+  label.textContent = 'Belum terhubung';
+  action.textContent = 'Login Google';
+  action.onclick = signInGoogle;
+  avatar.removeAttribute('src');
+  avatar.style.display = 'none';
+}
+
+function getPlannerRef(uid) {
+  return doc(db, 'budgetPlanners', uid);
 }
 
 function monthKey() {
@@ -1020,11 +1171,18 @@ async function pushTransactions(nextTransactions, statusLabel = 'Menyimpan ke Fi
   idCounter = getMaxId(transactions);
   writeLocalCache();
   render();
+  if (!currentUser) {
+    setSyncStatus('offline', 'Data sedang tersimpan di device ini');
+    return;
+  }
+
   setSyncStatus('syncing', statusLabel);
 
   try {
-    await setDoc(plannerRef, {
+    await setDoc(getPlannerRef(currentUser.uid), {
       transactions,
+      ownerUid: currentUser.uid,
+      ownerEmail: currentUser.email || '',
       updatedAt: serverTimestamp()
     }, { merge: true });
     setSyncStatus('online', 'Tersinkron ke Firebase');
@@ -1195,105 +1353,4 @@ function drawDonut(income, expense, savings) {
   const total = income + expense + savings;
   if (total === 0) {
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = '#d7e3e6';
-    ctx.lineWidth = thickness;
-    ctx.stroke();
-    return;
-  }
-
-  const data = [
-    { val: income, color: '#1f8a63' },
-    { val: expense, color: '#d65445' },
-    { val: savings, color: '#2f6fde' }
-  ].filter(item => item.val > 0);
-
-  let start = -Math.PI / 2;
-  data.forEach(item => {
-    const angle = (item.val / total) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, start, start + angle);
-    ctx.strokeStyle = item.color;
-    ctx.lineWidth = thickness;
-    ctx.stroke();
-    start += angle;
-  });
-
-  ctx.fillStyle = '#6f8790';
-  ctx.font = 'bold 11px Roboto Mono';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('TOTAL', cx, cy - 10);
-
-  ctx.fillStyle = '#122027';
-  ctx.font = 'bold 14px Roboto Mono';
-  ctx.fillText('Rp' + Math.round(total / 1000000) + 'jt', cx, cy + 10);
-}
-
-function render() {
-  document.getElementById('monthLabel').textContent = `${months[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
-
-  const txns = getTxns();
-  const income = txns.filter(item => item.type === 'income').reduce((sum, item) => sum + item.amount, 0);
-  const expense = txns.filter(item => item.type === 'expense').reduce((sum, item) => sum + item.amount, 0);
-  const savings = txns.filter(item => item.type === 'savings').reduce((sum, item) => sum + item.amount, 0);
-  const balance = income - expense - savings;
-  const savingsRate = income > 0 ? ((savings / income) * 100).toFixed(1) : 0;
-  const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-
-  document.getElementById('totalIncome').textContent = fmt(income);
-  document.getElementById('totalExpense').textContent = fmt(expense);
-  document.getElementById('totalSavings').textContent = fmt(savings);
-  document.getElementById('incomeCount').textContent = `${txns.filter(item => item.type === 'income').length} transaksi | ${fmt(income / daysInMonth)}/hari`;
-  document.getElementById('expenseCount').textContent = `${txns.filter(item => item.type === 'expense').length} transaksi | ${fmt(expense / daysInMonth)}/hari`;
-  document.getElementById('savingsCount').textContent = `${txns.filter(item => item.type === 'savings').length} transaksi | ${fmt(savings / daysInMonth)}/hari`;
-
-  const balanceEl = document.getElementById('balance');
-  balanceEl.textContent = fmt(Math.abs(balance));
-  balanceEl.className = 'sum-val ' + (balance >= 0 ? 'positive' : 'negative');
-  document.getElementById('savingsRate').textContent = `Savings rate: ${savingsRate}% | ${fmt(balance / daysInMonth)}/hari`;
-
-  renderTransactions(txns);
-  renderExpenseBreakdown(txns, expense);
-  renderDailyBreakdown(txns);
-  const ruleState = renderBudgetRule(income, expense, savings, txns);
-  renderTips(balance, savings, ruleState);
-  drawDonut(income, expense, savings);
-}
-
-async function bootstrapFirestore() {
-  setSyncStatus('syncing', 'Menghubungkan Firebase...');
-
-  onSnapshot(plannerRef, async snapshot => {
-    if (!snapshot.exists()) {
-      setSyncStatus('syncing', 'Menyiapkan data cloud...');
-      await setDoc(plannerRef, {
-        transactions,
-        updatedAt: serverTimestamp()
-      });
-      writeLocalCache();
-      setSyncStatus('online', 'Tersinkron ke Firebase');
-      return;
-    }
-
-    const remoteTransactions = normalizeTransactions(snapshot.data().transactions || {});
-    transactions = remoteTransactions;
-    idCounter = getMaxId(remoteTransactions);
-    writeLocalCache();
-    render();
-    setSyncStatus('online', 'Tersinkron ke Firebase');
-  }, error => {
-    console.error(error);
-    render();
-    setSyncStatus('error', 'Firebase error, pakai cache lokal');
-  });
-}
-
-renderCategoryOptions();
-ensureTxDateInput();
-setTab(activeTab);
-render();
-bootstrapFirestore();
-</script>
-</body>
-</html>
+    
