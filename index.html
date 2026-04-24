@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Budget Planner - Keuangan Pribadi</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f7f8;
+    --surface: #ffffff;
+    --surface2: #f6fafb;
+    --surface3: #eaf1f3;
+    --border: #d7e3e6;
+    --text: #122027;
+    --muted: #6f8790;
+    --income: #1f8a63;
+    --income-light: #e8f7f0;
+    --expense: #d65445;
+    --expense-light: #fdf1ef;
+    --savings: #2f6fde;
+    --savings-light: #eef3ff;
+    --warning: #d18a1d;
+    --warning-light: #fff7e8;
+    --gold: #4da3a6;
+    --radius: 14px;
+    --shadow: 0 18px 45px rgba(18, 32, 39, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(47, 111, 222, 0.08), transparent 26%),
+      radial-gradient(circle at top right, rgba(77, 163, 166, 0.10), transparent 22%),
+      linear-gradient(180deg, #f8fbfc 0%, var(--bg) 100%);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    background: linear-gradient(135deg, #122027 0%, #1d3740 100%);
+    color: #fff;
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    height: 56px;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .logo { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo em { color: var(--gold); font-style: normal; }
+
+  .month-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .month-nav button,
+  .icon-btn,
+  .fab,
+  .tab-btn,
+  .accordion-btn,
+  .btn-save,
+  .btn-cancel,
+  .btn-sm {
+    cursor: pointer;
+    font-family: 'Outfit', sans-serif;
+    transition: all 0.2s ease;
+  }
+
+  .month-nav button,
+  .icon-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  .month-nav button:hover,
+  .icon-btn:hover { background: rgba(255,255,255,0.2); }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 28px 20px 90px; }
+
+  .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .sum-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .sum-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+
+  .sum-card.income::after { background: var(--income); }
+  .sum-card.expense::after { background: var(--expense); }
+  .sum-card.savings::after { background: var(--savings); }
+  .sum-card.balance::after { background: var(--gold); }
+
+  .sum-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .sum-val {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 20px;
+    font-weight: 500;
+  }
+
+  .sum-val.income { color: var(--income); }
+  .sum-val.expense { color: var(--expense); }
+  .sum-val.savings { color: var(--savings); }
+  .sum-val.positive { color: var(--income); }
+  .sum-val.negative { color: var(--expense); }
+
+  .sum-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 6px;
+    background: rgba(255,255,255,0.65);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+  }
+
+  .tab-btn {
+    border: none;
+    background: transparent;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    flex: 1;
+  }
+
+  .tab-btn.active {
+    background: #122027;
+    color: #fff;
+    box-shadow: var(--shadow);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+  .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  .card,
+  .rule-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-title .badge {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .badge.green { background: var(--income); }
+  .badge.red { background: var(--expense); }
+  .badge.blue { background: var(--savings); }
+
+  .btn-sm {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+  }
+
+  .btn-sm:hover { border-color: var(--income); color: var(--income); }
+
+  .txn-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .txn-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto 28px;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+  }
+
+  .txn-name { font-size: 14px; font-weight: 600; }
+  .txn-cat { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .txn-date {
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: var(--surface);
+  }
+
+  .txn-amount {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .txn-amount.in { color: var(--income); }
+  .txn-amount.out { color: var(--expense); }
+  .txn-amount.save { color: var(--savings); }
+
+  .del-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 16px;
+    padding: 2px;
+    border-radius: 4px;
+  }
+
+  .del-btn:hover { color: var(--expense); }
+
+  .breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .breakdown-item:last-child { border: none; }
+  .breakdown-bar-wrap { flex: 1; }
+  .breakdown-name { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  .breakdown-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .breakdown-fill { height: 100%; border-radius: 3px; }
+  .breakdown-val { font-family: 'Roboto Mono', monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .breakdown-pct { font-size: 11px; color: var(--muted); }
+
+  .accordion {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .accordion-btn {
+    width: 100%;
+    border: none;
+    background: var(--surface2);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .accordion-btn span:last-child {
+    color: var(--muted);
+    font-size: 18px;
+    transform: rotate(0deg);
+  }
+
+  .accordion.open .accordion-btn span:last-child { transform: rotate(180deg); }
+
+  .accordion-content {
+    display: none;
+    padding: 14px 16px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .accordion.open .accordion-content { display: block; }
+
+  .daily-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 360px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .daily-row {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: var(--surface2);
+  }
+
+  .daily-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .daily-date { font-size: 13px; font-weight: 700; }
+  .daily-net { font-family: 'Roboto Mono', monospace; font-size: 12px; font-weight: 500; }
+  .daily-net.positive { color: var(--income); }
+  .daily-net.negative { color: var(--expense); }
+
+  .daily-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .daily-metric {
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: var(--surface);
+  }
+
+  .daily-metric-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .daily-metric-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .daily-metric-value.income { color: var(--income); }
+  .daily-metric-value.expense { color: var(--expense); }
+  .daily-metric-value.savings { color: var(--savings); }
+
+  .rule-card {
+    background: var(--warning-light);
+    border-color: #f3d18e;
+  }
+
+  .rule-title { font-size: 13px; font-weight: 700; color: var(--warning); margin-bottom: 12px; }
+
+  .rule-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(192,122,13,0.12);
+    font-size: 13px;
+  }
+
+  .rule-row:last-child { border: none; }
+  .rule-label { color: #8a661c; }
+  .rule-pct { font-weight: 700; color: var(--warning); }
+  .rule-val { font-family: 'Roboto Mono', monospace; font-size: 12px; color: #8a661c; }
+  .rule-actual { font-family: 'Roboto Mono', monospace; font-size: 12px; }
+  .rule-actual.ok { color: var(--income); }
+  .rule-actual.over { color: var(--expense); }
+
+  .donut-wrap { display: flex; justify-content: center; margin: 16px 0 8px; }
+  .donut-legend { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .tips-card {
+    background: linear-gradient(135deg, #122027 0%, #1d3740 100%);
+    border-color: #122027;
+  }
+
+  .tips-card h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+    margin-bottom: 10px;
+  }
+
+  .tips-content {
+    font-size: 13px;
+    color: rgba(255,255,255,0.78);
+    line-height: 1.7;
+  }
+
+  .empty-state {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 18px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+  }
+
+  .fab {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 60px;
+    height: 60px;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(135deg, #122027 0%, #2f6fde 100%);
+    color: #fff;
+    font-size: 28px;
+    box-shadow: 0 18px 40px rgba(26, 20, 16, 0.24);
+    z-index: 30;
+  }
+
+  .fab:hover { transform: translateY(-2px) scale(1.02); }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(26, 20, 16, 0.45);
+    display: none;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 24px;
+    z-index: 40;
+  }
+
+  .modal.open { display: flex; }
+
+  .modal-panel {
+    width: min(420px, 100%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(26, 20, 16, 0.18);
+    overflow: hidden;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-title {
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .modal-body { padding: 16px 18px 18px; }
+
+  .add-form-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .form-g { display: flex; flex-direction: column; gap: 6px; }
+
+  .form-g label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .form-g input,
+  .form-g select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    padding: 11px 12px;
+    outline: none;
+  }
+
+  .form-g input:focus,
+  .form-g select:focus { border-color: var(--income); }
+
+  .type-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+
+  .type-tab {
+    flex: 1;
+    padding: 9px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .type-tab.active.income { background: var(--income-light); border-color: var(--income); color: var(--income); }
+  .type-tab.active.expense { background: var(--expense-light); border-color: var(--expense); color: var(--expense); }
+  .type-tab.active.savings { background: var(--savings-light); border-color: var(--savings); color: var(--savings); }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .btn-save,
+  .btn-cancel {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .btn-save {
+    background: var(--income);
+    color: #fff;
+  }
+
+  .btn-save:hover { background: #236b42; }
+
+  .btn-cancel {
+    background: var(--surface3);
+    color: var(--text);
+  }
+
+  .btn-cancel:hover { background: #dde7ea; }
+
+  @media (max-width: 900px) {
+    .summary-cards,
+    .analytics-grid { grid-template-columns: 1fr 1fr; }
+    .main-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 700px) {
+    .topbar { padding: 0 16px; }
+    .container { padding: 20px 14px 88px; }
+    .summary-cards,
+    .analytics-grid,
+    .daily-metrics { grid-template-columns: 1fr; }
+    .tabs { flex-direction: column; }
+    .txn-row {
+      grid-template-columns: 1fr auto;
+      align-items: start;
+    }
+    .txn-date,
+    .txn-amount,
+    .del-btn { justify-self: end; }
+    .modal {
+      padding: 12px;
+      align-items: flex-end;
+      justify-content: stretch;
+    }
+    .modal-panel { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Duit<em>Ku</em></div>
+  <div class="month-nav">
+    <button type="button" onclick="changeMonth(-1)">&lt;</button>
+    <span id="monthLabel">-</span>
+    <button type="button" onclick="changeMonth(1)">&gt;</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="summary-cards">
+    <div class="sum-card income">
+      <div class="sum-label">Pemasukan</div>
+      <div class="sum-val income" id="totalIncome">Rp 0</div>
+      <div class="sum-sub" id="incomeCount">0 transaksi</div>
+    </div>
+    <div class="sum-card expense">
+      <div class="sum-label">Pengeluaran</div>
+      <div class="sum-val expense" id="totalExpense">Rp 0</div>
+      <div class="sum-sub" id="expenseCount">0 transaksi</div>
+    </div>
+    <div class="sum-card savings">
+      <div class="sum-label">Tabungan</div>
+      <div class="sum-val savings" id="totalSavings">Rp 0</div>
+      <div class="sum-sub" id="savingsCount">0 transaksi</div>
+    </div>
+    <div class="sum-card balance">
+      <div class="sum-label">Sisa / Defisit</div>
+      <div class="sum-val" id="balance">Rp 0</div>
+      <div class="sum-sub" id="savingsRate">Savings rate: 0%</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button type="button" class="tab-btn active" data-tab="overview" onclick="setTab('overview')">Ringkasan</button>
+    <button type="button" class="tab-btn" data-tab="distribution" onclick="setTab('distribution')">Distribusi</button>
+  </div>
+
+  <div id="overviewTab" class="tab-panel active">
+    <div class="main-grid">
+      <div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Catatan Keuangan</div>
+            <button type="button" class="btn-sm" onclick="openForm()">Tambah Catatan</button>
+          </div>
+          <div id="txnList" class="txn-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="accordion open" id="dailyAccordion">
+            <button type="button" class="accordion-btn" onclick="toggleAccordion()">
+              <span>Breakdown Harian</span>
+              <span id="accordionIcon">^</span>
+            </button>
+            <div class="accordion-content">
+              <div id="dailyBreakdown"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="rule-card">
+          <div class="rule-title">Aturan 50/30/20</div>
+          <div class="rule-row">
+            <span class="rule-label">Kebutuhan (50%)</span>
+            <span class="rule-pct">50%</span>
+            <span class="rule-val" id="r50val">-</span>
+            <span class="rule-actual" id="r50act">-</span>
+          </div>
+          <div class="rule-row">
+            <span class="rule-label">Keinginan (30%)</span>
+            <span class="rule-pct">30%</span>
+            <span class="rule-val" id="r30val">-</span>
+            <span class="rule-actual" id="r30act">-</span>
+          </div>
+          <div class="rule-row">
+            <span class="rule-label">Tabungan (20%)</span>
+            <span class="rule-pct">20%</span>
+            <span class="rule-val" id="r20val">-</span>
+            <span class="rule-actual" id="r20act">-</span>
+          </div>
+        </div>
+
+        <div class="card tips-card">
+          <h3>Tips Bulan Ini</h3>
+          <div id="tipsContent" class="tips-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="distributionTab" class="tab-panel">
+    <div class="analytics-grid">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:8px">Distribusi Keuangan</div>
+        <div class="donut-wrap">
+          <canvas id="donut" width="220" height="220"></canvas>
+        </div>
+        <div class="donut-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--income)"></div>Pemasukan</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--expense)"></div>Pengeluaran</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--savings)"></div>Tabungan</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="badge red"></span> Pengeluaran per Kategori</div>
+        </div>
+        <div id="breakdownList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<button type="button" class="fab" onclick="openForm()" aria-label="Tambah catatan">+</button>
+
+<div class="modal" id="addModal" onclick="closeForm(event)">
+  <div class="modal-panel" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">Tambah Catatan Keuangan</div>
+      <button type="button" class="icon-btn" onclick="closeForm()">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="type-tabs">
+        <button type="button" class="type-tab active income" onclick="setType('income', this)">Pemasukan</button>
+        <button type="button" class="type-tab expense" onclick="setType('expense', this)">Pengeluaran</button>
+        <button type="button" class="type-tab savings" onclick="setType('savings', this)">Tabungan</button>
+      </div>
+
+      <div class="add-form-row">
+        <div class="form-g">
+          <label>Keterangan</label>
+          <input type="text" id="txName" placeholder="Contoh: Gaji bulan ini">
+        </div>
+        <div class="form-g">
+          <label>Kategori</label>
+          <select id="txCat"></select>
+        </div>
+        <div class="form-g">
+          <label>Jumlah (Rp)</label>
+          <input type="number" id="txAmt" placeholder="0">
+        </div>
+        <div class="form-g">
+          <label>Tanggal</label>
+          <input type="date" id="txDate">
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeForm()">Batal</button>
+        <button type="button" class="btn-save" onclick="addTxn()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const categoryOptions = {
+  income: ['Gaji', 'Freelance', 'Bisnis', 'Bonus', 'Lain-lain'],
+  expense: ['Makan', 'Transport', 'Belanja', 'Kesehatan', 'Hiburan', 'Utilitas', 'Cicilan', 'Lain-lain'],
+  savings: ['Tabungan', 'Investasi', 'Dana Darurat', 'Lain-lain']
+};
+const sampleTransactions = {
+  '2026-4': [
+    { id: 1, type: 'income', name: 'Gaji', cat: 'Gaji', amount: 8000000, date: '2026-04-01' },
+    { id: 2, type: 'income', name: 'Freelance desain', cat: 'Freelance', amount: 2500000, date: '2026-04-12' },
+    { id: 3, type: 'expense', name: 'Kos / sewa', cat: 'Utilitas', amount: 1500000, date: '2026-04-02' },
+    { id: 4, type: 'expense', name: 'Makan sehari-hari', cat: 'Makan', amount: 1800000, date: '2026-04-05' },
+    { id: 5, type: 'expense', name: 'Transport & bensin', cat: 'Transport', amount: 500000, date: '2026-04-08' },
+    { id: 6, type: 'expense', name: 'Belanja bulanan', cat: 'Belanja', amount: 700000, date: '2026-04-15' },
+    { id: 7, type: 'expense', name: 'Hiburan', cat: 'Hiburan', amount: 400000, date: '2026-04-21' },
+    { id: 8, type: 'savings', name: 'Dana darurat', cat: 'Tabungan', amount: 1500000, date: '2026-04-18' },
+    { id: 9, type: 'savings', name: 'Investasi reksa dana', cat: 'Investasi', amount: 500000, date: '2026-04-24' }
+  ]
+};
+
+const storageKey = 'duitku-budget-planner-v1';
+let currentDate = new Date();
+let txnType = 'income';
+let activeTab = 'overview';
+let idCounter = 20;
+let transactions = loadTransactions();
+
+function loadTransactions() {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        idCounter = getMaxId(parsed);
+        return parsed;
+      }
+    }
+  } catch (error) {}
+  localStorage.setItem(storageKey, JSON.stringify(sampleTransactions));
+  idCounter = getMaxId(sampleTransactions);
+  return JSON.parse(JSON.stringify(sampleTransactions));
+}
+
+function getMaxId(data) {
+  const all = Object.values(data).flat();
+  return all.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+}
+
+function saveTransactions() {
+  localStorage.setItem(storageKey, JSON.stringify(transactions));
+}
+
+function monthKey() {
+  return `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}`;
+}
+
+function getTxns() {
+  return transactions[monthKey()] || [];
+}
+
+function getMonthDateValue() {
+  const year = currentDate.getFullYear();
+  const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+  const today = new Date();
+  const sameMonth = today.getFullYear() === year && today.getMonth() === currentDate.getMonth();
+  const day = sameMonth ? String(today.getDate()).padStart(2, '0') : '01';
+  return `${year}-${month}-${day}`;
+}
+
+function ensureTxDateInput() {
+  const dateInput = document.getElementById('txDate');
+  if (dateInput) dateInput.value = getMonthDateValue();
+}
+
+function formatDateLabel(dateStr) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function fmt(n) {
+  return 'Rp ' + Math.round(n).toLocaleString('id-ID');
+}
+
+function getAmountClass(type) {
+  if (type === 'income') return 'in';
+  if (type === 'savings') return 'save';
+  return 'out';
+}
+
+function typeSymbol(type) {
+  if (type === 'income') return '+';
+  if (type === 'savings') return '~';
+  return '-';
+}
+
+function setTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  document.getElementById('overviewTab').classList.toggle('active', tab === 'overview');
+  document.getElementById('distributionTab').classList.toggle('active', tab === 'distribution');
+}
+
+function toggleAccordion() {
+  document.getElementById('dailyAccordion').classList.toggle('open');
+}
+
+function setType(type, button) {
+  txnType = type;
+  document.querySelectorAll('.type-tab').forEach(item => item.classList.remove('active'));
+  button.classList.add('active');
+  renderCategoryOptions();
+}
+
+function renderCategoryOptions() {
+  const select = document.getElementById('txCat');
+  const options = categoryOptions[txnType];
+  select.innerHTML = options.map(option => `<option>${option}</option>`).join('');
+}
+
+function openForm() {
+  document.getElementById('addModal').classList.add('open');
+  ensureTxDateInput();
+  renderCategoryOptions();
+  document.getElementById('txName').focus();
+}
+
+function closeForm(event) {
+  if (event && event.target && event.target.id !== 'addModal') return;
+  document.getElementById('addModal').classList.remove('open');
+}
+
+function clearForm() {
+  document.getElementById('txName').value = '';
+  document.getElementById('txAmt').value = '';
+  ensureTxDateInput();
+}
+
+function changeMonth(delta) {
+  currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + delta, 1);
+  ensureTxDateInput();
+  render();
+}
+
+function addTxn() {
+  const name = document.getElementById('txName').value.trim();
+  const amount = parseFloat(document.getElementById('txAmt').value) || 0;
+  const cat = document.getElementById('txCat').value;
+  const date = document.getElementById('txDate').value || getMonthDateValue();
+  if (!name || !amount) return;
+
+  const key = monthKey();
+  if (!transactions[key]) transactions[key] = [];
+  transactions[key].push({ id: ++idCounter, type: txnType, name, cat, amount, date });
+  saveTransactions();
+  clearForm();
+  closeForm();
+  render();
+}
+
+function delTxn(id) {
+  const key = monthKey();
+  transactions[key] = (transactions[key] || []).filter(item => item.id !== id);
+  if (transactions[key].length === 0) delete transactions[key];
+  saveTransactions();
+  render();
+}
+
+function renderTransactions(txns) {
+  const list = document.getElementById('txnList');
+  if (txns.length === 0) {
+    list.innerHTML = '<div class="empty-state">Belum ada catatan bulan ini. Tap tombol tambah di kanan bawah untuk mulai.</div>';
+    return;
+  }
+
+  list.innerHTML = [...txns]
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id)
+    .map(item => `
+      <div class="txn-row">
+        <div>
+          <div class="txn-name">${item.name}</div>
+          <div class="txn-cat">${item.cat}</div>
+        </div>
+        <span class="txn-date">${formatDateLabel(item.date || getMonthDateValue())}</span>
+        <div class="txn-amount ${getAmountClass(item.type)}">${typeSymbol(item.type)}${fmt(item.amount)}</div>
+        <button type="button" class="del-btn" onclick="delTxn(${item.id})">x</button>
+      </div>
+    `)
+    .join('');
+}
+
+function renderExpenseBreakdown(txns, totalExpense) {
+  const cats = {};
+  txns.filter(item => item.type === 'expense').forEach(item => {
+    cats[item.cat] = (cats[item.cat] || 0) + item.amount;
+  });
+
+  const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]);
+  const maxCat = sorted.length > 0 ? sorted[0][1] : 1;
+  const colors = ['#c0392b','#e74c3c','#e67e22','#d35400','#f39c12','#b83b5e'];
+  document.getElementById('breakdownList').innerHTML = sorted.length === 0
+    ? '<div class="empty-state">Belum ada pengeluaran untuk dianalisis.</div>'
+    : sorted.map(([cat, amount], index) => `
+      <div class="breakdown-item">
+        <div class="breakdown-bar-wrap">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span class="breakdown-name">${cat}</span>
+            <span class="breakdown-pct">${totalExpense > 0 ? Math.round(amount / totalExpense * 100) : 0}%</span>
+          </div>
+          <div class="breakdown-bar">
+            <div class="breakdown-fill" style="width:${amount / maxCat * 100}%;background:${colors[index % colors.length]}"></div>
+          </div>
+        </div>
+        <div class="breakdown-val">${fmt(amount)}</div>
+      </div>
+    `).join('');
+}
+
+function renderDailyBreakdown(txns) {
+  const dailyMap = {};
+  txns.forEach(item => {
+    const key = item.date || getMonthDateValue();
+    if (!dailyMap[key]) dailyMap[key] = { income: 0, expense: 0, savings: 0 };
+    dailyMap[key][item.type] += item.amount;
+  });
+
+  const dailyRows = Object.entries(dailyMap).sort((a, b) => b[0].localeCompare(a[0]));
+  document.getElementById('dailyBreakdown').innerHTML = dailyRows.length === 0
+    ? '<div class="empty-state">Belum ada aktivitas harian.</div>'
+    : `<div class="daily-list">${dailyRows.map(([date, values]) => {
+        const net = values.income - values.expense - values.savings;
+        return `
+          <div class="daily-row">
+            <div class="daily-head">
+              <div class="daily-date">${formatDateLabel(date)}</div>
+              <div class="daily-net ${net >= 0 ? 'positive' : 'negative'}">${net >= 0 ? 'Sisa ' : 'Defisit '}${fmt(Math.abs(net))}</div>
+            </div>
+            <div class="daily-metrics">
+              <div class="daily-metric">
+                <div class="daily-metric-label">Pemasukan</div>
+                <div class="daily-metric-value income">${fmt(values.income)}</div>
+              </div>
+              <div class="daily-metric">
+                <div class="daily-metric-label">Pengeluaran</div>
+                <div class="daily-metric-value expense">${fmt(values.expense)}</div>
+              </div>
+              <div class="daily-metric">
+                <div class="daily-metric-label">Tabungan</div>
+                <div class="daily-metric-value savings">${fmt(values.savings)}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}</div>`;
+}
+
+function renderBudgetRule(income, expense, savings, txns) {
+  const r50 = income * 0.5;
+  const r30 = income * 0.3;
+  const r20 = income * 0.2;
+  document.getElementById('r50val').textContent = fmt(r50);
+  document.getElementById('r30val').textContent = fmt(r30);
+  document.getElementById('r20val').textContent = fmt(r20);
+
+  const needsCats = ['Utilitas','Makan','Transport','Kesehatan','Cicilan'];
+  const wantsCats = ['Hiburan','Belanja'];
+  const needs = txns.filter(item => item.type === 'expense' && needsCats.includes(item.cat)).reduce((sum, item) => sum + item.amount, 0);
+  const wants = txns.filter(item => item.type === 'expense' && wantsCats.includes(item.cat)).reduce((sum, item) => sum + item.amount, 0);
+
+  const r50act = document.getElementById('r50act');
+  const r30act = document.getElementById('r30act');
+  const r20act = document.getElementById('r20act');
+
+  r50act.textContent = fmt(needs);
+  r50act.className = 'rule-actual ' + (needs <= r50 ? 'ok' : 'over');
+  r30act.textContent = fmt(wants);
+  r30act.className = 'rule-actual ' + (wants <= r30 ? 'ok' : 'over');
+  r20act.textContent = fmt(savings);
+  r20act.className = 'rule-actual ' + (savings >= r20 ? 'ok' : 'over');
+
+  return { r20, r30, needs, wants };
+}
+
+function renderTips(balance, savings, ruleState) {
+  const tips = [];
+  if (savings < ruleState.r20) tips.push('Tabungan masih di bawah target 20%. Coba pindahkan sisa harian ke tabungan otomatis.');
+  if (ruleState.wants > ruleState.r30) tips.push('Pengeluaran keinginan mulai menekan budget. Cek lagi kategori belanja dan hiburan.');
+  if (balance < 0) tips.push('Bulan ini defisit. Prioritaskan kebutuhan dulu dan tunda pengeluaran yang tidak mendesak.');
+  if (balance > 0) tips.push(`Masih ada sisa ${fmt(balance)}. Bisa langsung diparkir ke tabungan atau investasi.`);
+  if (tips.length === 0) tips.push('Komposisi pengeluaranmu sudah cukup seimbang bulan ini. Pertahankan ritmenya.');
+  document.getElementById('tipsContent').innerHTML = tips.map(item => `- ${item}`).join('<br>');
+}
+
+function drawDonut(income, expense, savings) {
+  const canvas = document.getElementById('donut');
+  const ctx = canvas.getContext('2d');
+  const cx = 110;
+  const cy = 110;
+  const r = 74;
+  const thickness = 24;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const total = income + expense + savings;
+  if (total === 0) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = '#d7e3e6';
+    ctx.lineWidth = thickness;
+    ctx.stroke();
+    return;
+  }
+
+  const data = [
+    { val: income, color: '#1f8a63' },
+    { val: expense, color: '#d65445' },
+    { val: savings, color: '#2f6fde' }
+  ].filter(item => item.val > 0);
+
+  let start = -Math.PI / 2;
+  data.forEach(item => {
+    const angle = (item.val / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, start, start + angle);
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = thickness;
+    ctx.stroke();
+    start += angle;
+  });
+
+  ctx.fillStyle = '#6f8790';
+  ctx.font = 'bold 11px Roboto Mono';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('TOTAL', cx, cy - 10);
+
+  ctx.fillStyle = '#122027';
+  ctx.font = 'bold 14px Roboto Mono';
+  ctx.fillText('Rp' + Math.round(total / 1000000) + 'jt', cx, cy + 10);
+}
+
+function render() {
+  document.getElementById('monthLabel').textContent = `${months[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+
+  const txns = getTxns();
+  const income = txns.filter(item => item.type === 'income').reduce((sum, item) => sum + item.amount, 0);
+  const expense = txns.filter(item => item.type === 'expense').reduce((sum, item) => sum + item.amount, 0);
+  const savings = txns.filter(item => item.type === 'savings').reduce((sum, item) => sum + item.amount, 0);
+  const balance = income - expense - savings;
+  const savingsRate = income > 0 ? ((savings / income) * 100).toFixed(1) : 0;
+  const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+
+  document.getElementById('totalIncome').textContent = fmt(income);
+  document.getElementById('totalExpense').textContent = fmt(expense);
+  document.getElementById('totalSavings').textContent = fmt(savings);
+  document.getElementById('incomeCount').textContent = `${txns.filter(item => item.type === 'income').length} transaksi | ${fmt(income / daysInMonth)}/hari`;
+  document.getElementById('expenseCount').textContent = `${txns.filter(item => item.type === 'expense').length} transaksi | ${fmt(expense / daysInMonth)}/hari`;
+  document.getElementById('savingsCount').textContent = `${txns.filter(item => item.type === 'savings').length} transaksi | ${fmt(savings / daysInMonth)}/hari`;
+
+  const balanceEl = document.getElementById('balance');
+  balanceEl.textContent = fmt(Math.abs(balance));
+  balanceEl.className = 'sum-val ' + (balance >= 0 ? 'positive' : 'negative');
+  document.getElementById('savingsRate').textContent = `Savings rate: ${savingsRate}% | ${fmt(balance / daysInMonth)}/hari`;
+
+  renderTransactions(txns);
+  renderExpenseBreakdown(txns, expense);
+  renderDailyBreakdown(txns);
+  const ruleState = renderBudgetRule(income, expense, savings, txns);
+  renderTips(balance, savings, ruleState);
+  drawDonut(income, expense, savings);
+}
+
+renderCategoryOptions();
+ensureTxDateInput();
+setTab(activeTab);
+render();
+</script>
+</body>
+</html>
