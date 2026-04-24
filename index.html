@@ -64,6 +64,37 @@
     font-weight: 600;
   }
 
+  .month-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.88);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+
+  .sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #93a8af;
+  }
+
+  .sync-badge.online .sync-dot { background: #38c793; }
+  .sync-badge.syncing .sync-dot { background: #ffd166; }
+  .sync-badge.offline .sync-dot,
+  .sync-badge.error .sync-dot { background: #ff7b72; }
+
   .month-nav button,
   .icon-btn,
   .fab,
@@ -587,6 +618,8 @@
   @media (max-width: 700px) {
     .topbar { padding: 0 16px; }
     .container { padding: 20px 14px 88px; }
+    .month-meta { gap: 8px; }
+    .sync-badge { display: none; }
     .summary-cards,
     .analytics-grid,
     .daily-metrics { grid-template-columns: 1fr; }
@@ -611,10 +644,16 @@
 
 <div class="topbar">
   <div class="logo">Duit<em>Ku</em></div>
-  <div class="month-nav">
-    <button type="button" onclick="changeMonth(-1)">&lt;</button>
-    <span id="monthLabel">-</span>
-    <button type="button" onclick="changeMonth(1)">&gt;</button>
+  <div class="month-meta">
+    <div class="sync-badge syncing" id="syncBadge">
+      <span class="sync-dot"></span>
+      <span id="syncStatus">Menghubungkan Firebase...</span>
+    </div>
+    <div class="month-nav">
+      <button type="button" onclick="changeMonth(-1)">&lt;</button>
+      <span id="monthLabel">-</span>
+      <button type="button" onclick="changeMonth(1)">&gt;</button>
+    </div>
   </div>
 </div>
 
@@ -768,7 +807,16 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  onSnapshot,
+  serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js';
+
 const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const categoryOptions = {
   income: ['Gaji', 'Freelance', 'Bisnis', 'Bonus', 'Lain-lain'],
@@ -789,27 +837,77 @@ const sampleTransactions = {
   ]
 };
 
+const firebaseConfig = {
+  apiKey: "AIzaSyCFWGCQTDU1wat7cutVNQReoVMEnviGa1A",
+  authDomain: "padelin-33ff7.firebaseapp.com",
+  projectId: "padelin-33ff7",
+  storageBucket: "padelin-33ff7.firebasestorage.app",
+  messagingSenderId: "489717587778",
+  appId: "1:489717587778:web:b39672984eeebe9a7472db",
+  measurementId: "G-SRST9B2Y1Q"
+};
+
 const storageKey = 'duitku-budget-planner-v1';
+const plannerDocPath = ['budgetPlanners', 'shared-default'];
 let currentDate = new Date();
 let txnType = 'income';
 let activeTab = 'overview';
 let idCounter = 20;
-let transactions = loadTransactions();
+let transactions = loadLocalCache();
+let db;
+let plannerRef;
 
-function loadTransactions() {
+const app = initializeApp(firebaseConfig);
+db = getFirestore(app);
+plannerRef = doc(db, ...plannerDocPath);
+
+window.changeMonth = changeMonth;
+window.openForm = openForm;
+window.closeForm = closeForm;
+window.setTab = setTab;
+window.toggleAccordion = toggleAccordion;
+window.addTxn = addTxn;
+window.setType = setType;
+window.delTxn = delTxn;
+
+function cloneData(data) {
+  return JSON.parse(JSON.stringify(data));
+}
+
+function normalizeTransactions(data) {
+  if (!data || typeof data !== 'object') return {};
+  const normalized = {};
+  Object.entries(data).forEach(([key, list]) => {
+    if (!Array.isArray(list)) return;
+    normalized[key] = list.map(item => ({
+      id: Number(item.id) || Date.now(),
+      type: item.type || 'expense',
+      name: item.name || 'Tanpa nama',
+      cat: item.cat || 'Lain-lain',
+      amount: Number(item.amount) || 0,
+      date: item.date || getMonthDateValue()
+    }));
+  });
+  return normalized;
+}
+
+function loadLocalCache() {
   try {
     const raw = localStorage.getItem(storageKey);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        idCounter = getMaxId(parsed);
-        return parsed;
-      }
+      const parsed = normalizeTransactions(JSON.parse(raw));
+      idCounter = getMaxId(parsed);
+      return parsed;
     }
   } catch (error) {}
-  localStorage.setItem(storageKey, JSON.stringify(sampleTransactions));
-  idCounter = getMaxId(sampleTransactions);
-  return JSON.parse(JSON.stringify(sampleTransactions));
+  const fallback = cloneData(sampleTransactions);
+  localStorage.setItem(storageKey, JSON.stringify(fallback));
+  idCounter = getMaxId(fallback);
+  return fallback;
+}
+
+function writeLocalCache() {
+  localStorage.setItem(storageKey, JSON.stringify(transactions));
 }
 
 function getMaxId(data) {
@@ -817,8 +915,11 @@ function getMaxId(data) {
   return all.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
 }
 
-function saveTransactions() {
-  localStorage.setItem(storageKey, JSON.stringify(transactions));
+function setSyncStatus(state, label) {
+  const badge = document.getElementById('syncBadge');
+  const text = document.getElementById('syncStatus');
+  badge.className = `sync-badge ${state}`;
+  text.textContent = label;
 }
 
 function monthKey() {
@@ -914,7 +1015,26 @@ function changeMonth(delta) {
   render();
 }
 
-function addTxn() {
+async function pushTransactions(nextTransactions, statusLabel = 'Menyimpan ke Firebase...') {
+  transactions = normalizeTransactions(nextTransactions);
+  idCounter = getMaxId(transactions);
+  writeLocalCache();
+  render();
+  setSyncStatus('syncing', statusLabel);
+
+  try {
+    await setDoc(plannerRef, {
+      transactions,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    setSyncStatus('online', 'Tersinkron ke Firebase');
+  } catch (error) {
+    console.error(error);
+    setSyncStatus('error', 'Gagal sync, pakai cache lokal');
+  }
+}
+
+async function addTxn() {
   const name = document.getElementById('txName').value.trim();
   const amount = parseFloat(document.getElementById('txAmt').value) || 0;
   const cat = document.getElementById('txCat').value;
@@ -922,20 +1042,20 @@ function addTxn() {
   if (!name || !amount) return;
 
   const key = monthKey();
-  if (!transactions[key]) transactions[key] = [];
-  transactions[key].push({ id: ++idCounter, type: txnType, name, cat, amount, date });
-  saveTransactions();
+  const nextTransactions = cloneData(transactions);
+  if (!nextTransactions[key]) nextTransactions[key] = [];
+  nextTransactions[key].push({ id: ++idCounter, type: txnType, name, cat, amount, date });
   clearForm();
   closeForm();
-  render();
+  await pushTransactions(nextTransactions);
 }
 
-function delTxn(id) {
+async function delTxn(id) {
   const key = monthKey();
-  transactions[key] = (transactions[key] || []).filter(item => item.id !== id);
-  if (transactions[key].length === 0) delete transactions[key];
-  saveTransactions();
-  render();
+  const nextTransactions = cloneData(transactions);
+  nextTransactions[key] = (nextTransactions[key] || []).filter(item => item.id !== id);
+  if (nextTransactions[key].length === 0) delete nextTransactions[key];
+  await pushTransactions(nextTransactions, 'Menghapus dari Firebase...');
 }
 
 function renderTransactions(txns) {
@@ -969,7 +1089,7 @@ function renderExpenseBreakdown(txns, totalExpense) {
 
   const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   const maxCat = sorted.length > 0 ? sorted[0][1] : 1;
-  const colors = ['#c0392b','#e74c3c','#e67e22','#d35400','#f39c12','#b83b5e'];
+  const colors = ['#d65445','#ef7d61','#f39c52','#dd6b4d','#ffb84d','#e66f91'];
   document.getElementById('breakdownList').innerHTML = sorted.length === 0
     ? '<div class="empty-state">Belum ada pengeluaran untuk dianalisis.</div>'
     : sorted.map(([cat, amount], index) => `
@@ -1141,10 +1261,39 @@ function render() {
   drawDonut(income, expense, savings);
 }
 
+async function bootstrapFirestore() {
+  setSyncStatus('syncing', 'Menghubungkan Firebase...');
+
+  onSnapshot(plannerRef, async snapshot => {
+    if (!snapshot.exists()) {
+      setSyncStatus('syncing', 'Menyiapkan data cloud...');
+      await setDoc(plannerRef, {
+        transactions,
+        updatedAt: serverTimestamp()
+      });
+      writeLocalCache();
+      setSyncStatus('online', 'Tersinkron ke Firebase');
+      return;
+    }
+
+    const remoteTransactions = normalizeTransactions(snapshot.data().transactions || {});
+    transactions = remoteTransactions;
+    idCounter = getMaxId(remoteTransactions);
+    writeLocalCache();
+    render();
+    setSyncStatus('online', 'Tersinkron ke Firebase');
+  }, error => {
+    console.error(error);
+    render();
+    setSyncStatus('error', 'Firebase error, pakai cache lokal');
+  });
+}
+
 renderCategoryOptions();
 ensureTxDateInput();
 setTab(activeTab);
 render();
+bootstrapFirestore();
 </script>
 </body>
 </html>
