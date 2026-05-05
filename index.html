@@ -1243,6 +1243,31 @@ function parseCurrencyValue(raw) {
   return Number(digits);
 }
 
+function titleCase(value) {
+  return (value || '')
+    .toLowerCase()
+    .replace(/\b\w/g, letter => letter.toUpperCase())
+    .trim();
+}
+
+function normalizeMonthToken(token) {
+  const map = {
+    jan: 'january', januari: 'january',
+    feb: 'february', februari: 'february',
+    mar: 'march', maret: 'march',
+    apr: 'april',
+    mei: 'may', may: 'may',
+    jun: 'june', juni: 'june',
+    jul: 'july', juli: 'july',
+    agu: 'august', agustus: 'august', aug: 'august',
+    sep: 'september', sept: 'september', september: 'september',
+    okt: 'october', october: 'october', oktober: 'october', oct: 'october',
+    nov: 'november', november: 'november',
+    des: 'december', desember: 'december', dec: 'december', december: 'december'
+  };
+  return map[token.toLowerCase()] || token.toLowerCase();
+}
+
 function normalizeReceiptText(text) {
   return (text || '')
     .replace(/[|]/g, 'I')
@@ -1251,8 +1276,87 @@ function normalizeReceiptText(text) {
     .trim();
 }
 
-function pickReceiptName(lines) {
+function cleanReceiptLines(text) {
+  const noisePattern = /^(?:\d{1,2}[:.]\d{2}|duitkuw\.vercel\.app|https?:\/\/|file:\/\/|upload receipt|pilih foto|pemasukan|pengeluaran|tabungan|batal|simpan|kategori|jumlah|tanggal)$/i;
+  return normalizeReceiptText(text)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => !noisePattern.test(line))
+    .filter(line => !/^[\d\s.:/%+-]+$/.test(line));
+}
+
+function isBankStyleProof(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(transaction details|transaction date|transfer method|bi-fast|bca|bri|bni|mandiri|rekening|account number|bank transfer)/i.test(corpus);
+}
+
+function isQrisStyleProof(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(qris|payment successful|payment to|acquirer|rrn|view details)/i.test(corpus);
+}
+
+function isRideAppProof(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(goride|gocar|gofood|gotransit|grabcar|grabbike|detail perjalanan|bayar pakai gopay|download bukti|biaya tiket krl)/i.test(corpus);
+}
+
+function isParkingReceipt(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(biaya parkir|saldo akhir|parkir|masuk p8?t parkir|midpoint place)/i.test(corpus);
+}
+
+function isTollReceipt(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(jasamarga|transjawa tol|info tol|gol-?\s*1|e-?toll|gt[o0]|tol\b)/i.test(corpus);
+}
+
+function isTransferSummaryProof(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  return /(m-transfer|hasil transfer|pembayaran diterima|jumlah transfer|jumlah total|dari|ke|waktu transaksi|berhasil)/i.test(corpus);
+}
+
+function extractNamedField(text, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`${escaped}\\s*[:\\-]?\\s*([^\\n]+)`, 'i'));
+  return match ? match[1].trim() : '';
+}
+
+function parseLabeledAmount(text, labels) {
+  for (const label of labels) {
+    const value = extractNamedField(text, label);
+    if (!value) continue;
+    const parsed = parseCurrencyValue(value);
+    if (parsed) return parsed;
+  }
+  return 0;
+}
+
+function extractLineAmount(lines, patterns) {
+  for (const line of lines) {
+    if (!patterns.some(pattern => pattern.test(line))) continue;
+    const matches = [...line.matchAll(/(?:rp|idr)?\s*([\d.,]+)/ig)];
+    const values = matches
+      .map(match => parseCurrencyValue(match[1] || match[0]))
+      .filter(Boolean);
+    if (values.length > 0) return values[values.length - 1];
+  }
+  return 0;
+}
+
+function pickReceiptName(lines, context = {}) {
   const skipPattern = /(total|subtotal|cash|tunai|change|kembali|date|tanggal|qty|item|diskon|ppn|tax|debit|kredit|terima kasih|thank you|welcome|indomaret|alfamart|invoice|receipt|struk)/i;
+  if (context.bankStyle) {
+    const bankName = lines.find(line => {
+      const cleaned = line.replace(/[^A-Za-z\s.&/-]/g, '').trim();
+      if (cleaned.length < 5 || cleaned.length > 40) return false;
+      if (skipPattern.test(cleaned)) return false;
+      if (/(transaction|details|transfer|method|date|bca|bri|bni|mandiri|bi-fast)/i.test(cleaned)) return false;
+      return /^[A-Z\s.&/-]+$/.test(cleaned);
+    });
+    if (bankName) return `Transfer ke ${bankName}`;
+  }
+
   const candidate = lines.find(line => {
     const cleaned = line.replace(/[^a-zA-Z0-9\s.&/-]/g, '').trim();
     if (cleaned.length < 4 || cleaned.length > 40) return false;
@@ -1282,22 +1386,46 @@ function parseReceiptDate(text) {
     return `${year}-${monthMap[monthName]}-${day.padStart(2, '0')}`;
   }
 
+  const englishMonthMap = {
+    january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
+    july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
+  };
+  const englishMatch = text.toLowerCase().match(/\b(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})(?:,?\s+\d{1,2}[:.]\d{2})?\b/);
+  if (englishMatch) {
+    const [, day, monthName, year] = englishMatch;
+    return `${year}-${englishMonthMap[monthName]}-${day.padStart(2, '0')}`;
+  }
+
+  const shortMonthMatch = text.toLowerCase().match(/\b(\d{1,2})\s+(jan|feb|mar|apr|mei|may|jun|jul|agu|aug|sep|sept|okt|oct|nov|des|dec)\s+(\d{4})(?:\s+\d{1,2}[:.]\d{2}(?::\d{2})?)?\b/);
+  if (shortMonthMatch) {
+    const [, day, token, year] = shortMonthMatch;
+    const monthName = normalizeMonthToken(token);
+    if (englishMonthMap[monthName]) {
+      return `${year}-${englishMonthMap[monthName]}-${day.padStart(2, '0')}`;
+    }
+  }
+
   return '';
 }
 
-function parseReceiptAmount(lines) {
+function parseReceiptAmount(lines, context = {}) {
   const amountPattern = /(?:rp\s*)?(\d{1,3}(?:[.,]\d{3})+[.,]?\d{0,2}|\d{4,})/ig;
-  const priorityPattern = /(grand total|total bayar|total belanja|jumlah bayar|amount due|subtotal|total|tunai|cash)/i;
+  const priorityPattern = /(grand total|total bayar|total belanja|jumlah bayar|amount due|subtotal|total|tunai|cash|amount|nominal|jumlah transfer)/i;
   const candidates = [];
 
   lines.forEach((line, index) => {
+    const normalizedLine = line.toLowerCase();
     const matches = [...line.matchAll(amountPattern)];
     matches.forEach(match => {
       const value = parseCurrencyValue(match[0]);
       if (!value || value < 100) return;
+      const digitGroups = (match[0].match(/\d+/g) || []).length;
+      if (context.bankStyle && !/(rp|amount|nominal|jumlah|total|transfer)/i.test(normalizedLine)) return;
+      if (digitGroups > 6) return;
+      if (String(value).length > 11) return;
       let score = value;
       if (priorityPattern.test(line)) score += 100000000;
-      if (/kembali|change|diskon|ppn|tax/i.test(line)) score -= 20000000;
+      if (/kembali|change|diskon|ppn|tax|rekening|account|ref|reference/i.test(line)) score -= 20000000;
       score -= index * 1000;
       candidates.push({ value, score });
     });
@@ -1337,7 +1465,8 @@ function guessTransactionType(text, lines) {
       patterns: [
         /qris|qr payment|paylater|berhasil dibayar|transaksi berhasil|payment successful/,
         /uang keluar|dana keluar|transfer keluar|sent|debit|pembayaran/,
-        /gopay|ovo|dana|shopeepay|linkaja|transfer ke|bayar ke/
+        /gopay|ovo|dana|shopeepay|linkaja|transfer ke|bayar ke/,
+        /goride|gocar|grab|parkir|tol|e-?toll|jasamarga/
       ]
     }
   ];
@@ -1368,7 +1497,8 @@ function guessIncomeCategory(text) {
     { cat: 'Gaji', pattern: /gaji|salary|payroll|thr/ },
     { cat: 'Freelance', pattern: /freelance|project|invoice paid|fee/ },
     { cat: 'Bisnis', pattern: /penjualan|sales|omzet|merchant settlement|usaha/ },
-    { cat: 'Bonus', pattern: /bonus|cashback|reward|insentif|refund/ }
+    { cat: 'Bonus', pattern: /bonus|cashback|reward|insentif|refund/ },
+    { cat: 'Lain-lain', pattern: /pembayaran diterima|transfer masuk|dari|received/ }
   ];
   return rules.find(item => item.pattern.test(corpus))?.cat || 'Lain-lain';
 }
@@ -1470,35 +1600,252 @@ function guessExpenseCategory(text, lines) {
   return { cat: winner.cat, catReason: reason };
 }
 
-function extractReceiptData(text) {
-  const normalized = normalizeReceiptText(text);
-  const lines = normalized
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
+function extractQrisData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const paymentTo = extractNamedField(corpus, 'payment to');
+  const qrisAmount = parseLabeledAmount(corpus, ['idr', 'amount', 'total']) || parseCurrencyValue((corpus.match(/\bidr\s*([\d.,]+)/i) || [])[1] || '');
+  const qrisDate = parseReceiptDate(corpus);
+  const merchantName = paymentTo ? titleCase(paymentTo.replace(/\s+/g, ' ')) : '';
+  const catGuess = guessExpenseCategory(corpus, lines);
 
-  const amount = parseReceiptAmount(lines);
-  const date = parseReceiptDate(normalized);
-  const name = pickReceiptName(lines);
-  const typeGuess = guessTransactionType(normalized, lines);
-  let categoryGuess;
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name: merchantName ? `QRIS ${merchantName}` : 'Transaksi QRIS',
+    amount: qrisAmount,
+    date: qrisDate,
+    cat: catGuess.cat,
+    catReason: catGuess.catReason || 'terdeteksi pola QRIS'
+  };
+}
 
-  if (typeGuess.type === 'income') {
-    categoryGuess = { cat: guessIncomeCategory(normalized), catReason: 'terdeteksi pola pemasukan' };
-  } else if (typeGuess.type === 'savings') {
-    categoryGuess = { cat: guessSavingsCategory(normalized), catReason: 'terdeteksi pola tabungan atau investasi' };
-  } else {
-    categoryGuess = guessExpenseCategory(normalized, lines);
+function extractBankTransferData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const total = parseLabeledAmount(corpus, ['total', 'amount', 'nominal', 'jumlah transfer']);
+  const date = parseReceiptDate(corpus);
+  const nameLine = lines.find(line => /^[A-Z\s.&/-]{5,40}$/.test(line) && !/(transaction|details|bca|bri|bni|mandiri|bi-fast)/i.test(line));
+  const name = nameLine ? `Transfer ke ${titleCase(nameLine)}` : 'Transfer bank';
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name,
+    amount: total,
+    date,
+    cat: 'Lain-lain',
+    catReason: 'terdeteksi transfer bank atau mutasi rekening'
+  };
+}
+
+function extractTransferSummaryData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const total = parseLabeledAmount(corpus, ['jumlah total', 'jumlah transfer', 'total']) || extractLineAmount(lines, [/rp/i, /jumlah/i, /total/i]);
+  const date = parseReceiptDate(corpus);
+
+  const explicitOutgoing = /(hasil transfer|m-transfer|transfer berhasil|transfer ke|ke\s+\d{5,}|jumlah transfer|metode transaksi|bi-fast)/i.test(corpus);
+  const explicitIncoming = /(uang masuk|dana masuk|incoming transfer|received payment|refund berhasil|merchant settlement)/i.test(corpus);
+  const incoming = !explicitOutgoing && explicitIncoming;
+  const senderLine = lines.find(line => /dari\s+/i.test(line));
+  const recipientLine = lines.find(line => /ke\s+/i.test(line));
+  const upperNameLine = lines.find(line => /^[A-Z][A-Z\s.]{5,50}$/.test(line) && !/berhasil|transfer|bca|seabank|bi-fast/i.test(line));
+
+  let name = incoming ? 'Transfer masuk' : 'Transfer keluar';
+  if (incoming && senderLine) {
+    name = `Transfer dari ${titleCase(senderLine.replace(/^dari\s*/i, ''))}`;
+  } else if (incoming && upperNameLine) {
+    name = `Transfer dari ${titleCase(upperNameLine)}`;
+  } else if (!incoming && recipientLine) {
+    name = `Transfer ke ${titleCase(recipientLine.replace(/^ke\s*/i, ''))}`;
+  } else if (!incoming && upperNameLine) {
+    name = `Transfer ke ${titleCase(upperNameLine)}`;
   }
 
   return {
+    type: incoming ? 'income' : 'expense',
+    typeLabel: incoming ? 'Pemasukan' : 'Pengeluaran',
+    name,
+    amount: total,
+    date,
+    cat: incoming ? 'Lain-lain' : 'Lain-lain',
+    catReason: incoming ? 'terdeteksi transfer masuk atau pembayaran diterima' : 'terdeteksi transfer keluar'
+  };
+}
+
+function extractTollReceiptData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const date = parseReceiptDate(corpus);
+  const amount = extractLineAmount(lines, [/gol-?\s*1/i, /e-?toll/i, /rp/i]) || parseReceiptAmount(lines, { bankStyle: false });
+  const operatorLine = lines.find(line => /(jasamarga|transjawa tol|waspphutowa|citra waspphutowa)/i.test(line));
+  const gateLine = lines.find(line => /(kl malang|sawangan|gt[o0]|gerbang|tol)/i.test(line) && !/info tol/i.test(line));
+  const nameParts = [
+    operatorLine ? titleCase(operatorLine) : '',
+    gateLine ? titleCase(gateLine) : ''
+  ].filter(Boolean);
+  const hasTolPrefix = nameParts.some(part => /^tol\b/i.test(part));
+  const name = nameParts.length ? `${hasTolPrefix ? '' : 'Tol '}${nameParts.join(' - ')}`.trim() : 'Tol';
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
     name,
     amount,
     date,
-    type: typeGuess.type,
-    typeLabel: typeGuess.typeLabel,
+    cat: 'Transport',
+    catReason: 'terdeteksi struk tol'
+  };
+}
+
+function extractParkingReceiptData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const date = parseReceiptDate(corpus);
+  const amount = extractLineAmount(lines, [/biaya parkir/i, /parkir/i, /rp/i]) || parseReceiptAmount(lines, { bankStyle: false });
+  const venueLine = lines.find(line => /(midpoint place|parkir|mall|plaza|tower|gedung|basement|lobby)/i.test(line) && !/biaya parkir|saldo akhir|terima kasih/i.test(line));
+  const name = venueLine ? `Parkir ${titleCase(venueLine)}` : 'Parkir';
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name,
+    amount,
+    date,
+    cat: 'Transport',
+    catReason: 'terdeteksi struk parkir'
+  };
+}
+
+function extractRideAppData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const date = parseReceiptDate(corpus);
+  const amount = parseLabeledAmount(corpus, ['bayar pakai gopay', 'bayar pakai gopay coins', 'bayar pakai ovo', 'bayar', 'total']) || extractLineAmount(lines, [/bayar/i, /gopay/i, /ovo/i]);
+  const destination = extractNamedField(corpus, 'lokasi tujuan');
+  const pickup = extractNamedField(corpus, 'lokasi jemput');
+  const departureStation = extractNamedField(corpus, 'stasiun keberangkatan');
+  const arrivalStation = extractNamedField(corpus, 'stasiun tujuan');
+  const rideName = /gotransit/i.test(corpus)
+    ? 'GoTransit'
+    : /goride/i.test(corpus)
+      ? 'GoRide'
+      : /gocar/i.test(corpus)
+        ? 'GoCar'
+        : /gofood/i.test(corpus)
+          ? 'GoFood'
+          : /grab/i.test(corpus)
+            ? 'Ride App'
+            : 'Transport Online';
+  const name = destination
+    ? `${rideName} ${titleCase(destination)}`
+    : arrivalStation
+      ? `${rideName} ${titleCase(arrivalStation)}`
+    : pickup
+      ? `${rideName} dari ${titleCase(pickup)}`
+      : departureStation
+        ? `${rideName} dari ${titleCase(departureStation)}`
+      : rideName;
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name,
+    amount,
+    date,
+    cat: 'Transport',
+    catReason: 'terdeteksi riwayat transport online'
+  };
+}
+
+function extractFoodDeliveryData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const total = parseLabeledAmount(corpus, ['paid', 'total', 'subtotal pesanan']) || extractLineAmount(lines, [/paid/i, /subtotal/i, /rp/i]);
+  const date = parseReceiptDate(corpus);
+  const menuLine = lines.find(line => /(ice cream|sundae|lemonade|tea|burger|pizza|nasi|mie|kopi|ayam|bakso)/i.test(line));
+  const orderName = /shopee/i.test(corpus) ? 'ShopeeFood' : /gofood/i.test(corpus) ? 'GoFood' : 'Pesanan makanan';
+  const name = menuLine ? `${orderName} ${titleCase(menuLine.replace(/^\d+\s*x\s*/i, ''))}` : orderName;
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name,
+    amount: total,
+    date,
+    cat: 'Makan',
+    catReason: 'terdeteksi rincian pesanan makanan'
+  };
+}
+
+function extractRetailReceiptData(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const amount = parseReceiptAmount(lines, { bankStyle: false });
+  const date = parseReceiptDate(corpus);
+  const storeLine = lines.find(line => /(indomaret|alfamart|superindo|hypermart|transmart|point midpoint place)/i.test(line));
+  const name = storeLine ? titleCase(storeLine) : pickReceiptName(lines, { bankStyle: false });
+  const categoryGuess = guessExpenseCategory(corpus, lines);
+
+  return {
+    type: 'expense',
+    typeLabel: 'Pengeluaran',
+    name,
+    amount,
+    date,
     cat: categoryGuess.cat,
-    catReason: categoryGuess.catReason,
+    catReason: categoryGuess.catReason
+  };
+}
+
+function extractReceiptData(text) {
+  const normalized = normalizeReceiptText(text);
+  const lines = cleanReceiptLines(text);
+  const bankStyle = isBankStyleProof(normalized, lines);
+  const qrisStyle = isQrisStyleProof(normalized, lines);
+  const rideAppStyle = isRideAppProof(normalized, lines);
+  const parkingStyle = isParkingReceipt(normalized, lines);
+  const tollStyle = isTollReceipt(normalized, lines);
+  const transferSummaryStyle = isTransferSummaryProof(normalized, lines);
+  const foodDeliveryStyle = /(rincian pesanan|shopeefood|gofood|voucher diskon|biaya pengiriman|biaya layanan|pesan lagi)/i.test(buildReceiptCorpus(normalized, lines));
+  let parsed;
+
+  if (foodDeliveryStyle) {
+    parsed = extractFoodDeliveryData(normalized, lines);
+  } else if (qrisStyle) {
+    parsed = extractQrisData(normalized, lines);
+  } else if (rideAppStyle) {
+    parsed = extractRideAppData(normalized, lines);
+  } else if (parkingStyle) {
+    parsed = extractParkingReceiptData(normalized, lines);
+  } else if (tollStyle) {
+    parsed = extractTollReceiptData(normalized, lines);
+  } else if (transferSummaryStyle) {
+    parsed = extractTransferSummaryData(normalized, lines);
+  } else if (bankStyle) {
+    parsed = extractBankTransferData(normalized, lines);
+  } else {
+    const typeGuess = guessTransactionType(normalized, lines);
+    if (typeGuess.type === 'income') {
+      parsed = {
+        type: typeGuess.type,
+        typeLabel: typeGuess.typeLabel,
+        name: pickReceiptName(lines, { bankStyle: false }),
+        amount: parseReceiptAmount(lines, { bankStyle: false }),
+        date: parseReceiptDate(buildReceiptCorpus(normalized, lines)),
+        cat: guessIncomeCategory(normalized),
+        catReason: 'terdeteksi pola pemasukan'
+      };
+    } else if (typeGuess.type === 'savings') {
+      parsed = {
+        type: typeGuess.type,
+        typeLabel: typeGuess.typeLabel,
+        name: pickReceiptName(lines, { bankStyle: false }),
+        amount: parseReceiptAmount(lines, { bankStyle: false }),
+        date: parseReceiptDate(buildReceiptCorpus(normalized, lines)),
+        cat: guessSavingsCategory(normalized),
+        catReason: 'terdeteksi pola tabungan atau investasi'
+      };
+    } else {
+      parsed = extractRetailReceiptData(normalized, lines);
+    }
+  }
+
+  return {
+    ...parsed,
     rawText: normalized
   };
 }
@@ -1530,6 +1877,62 @@ async function fileToDataUrl(file) {
   });
 }
 
+async function rotateImageDataUrl(dataUrl, degrees) {
+  return await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const radians = degrees * Math.PI / 180;
+      const swap = Math.abs(degrees) % 180 === 90;
+      const canvas = document.createElement('canvas');
+      canvas.width = swap ? image.height : image.width;
+      canvas.height = swap ? image.width : image.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context unavailable'));
+        return;
+      }
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(radians);
+      ctx.drawImage(image, -image.width / 2, -image.height / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+function scoreOcrResult(resultText) {
+  const text = normalizeReceiptText(resultText).toLowerCase();
+  let score = 0;
+  const tokens = [
+    /total/, /amount/, /transaction/, /payment/, /qris/, /indomaret/, /bca/, /tanggal/,
+    /date/, /idr/, /rp/, /non tunai/, /total belanja/
+  ];
+  tokens.forEach(pattern => {
+    if (pattern.test(text)) score += 5;
+  });
+  score += Math.min(text.length / 25, 20);
+  return score;
+}
+
+async function recognizeReceiptText(sourceFile, baseDataUrl) {
+  const candidates = [
+    { label: 'asli', input: sourceFile },
+    { label: 'rotasi 180', input: await rotateImageDataUrl(baseDataUrl, 180) }
+  ];
+  let best = null;
+
+  for (const candidate of candidates) {
+    const result = await globalThis.Tesseract.recognize(candidate.input, 'eng+ind');
+    const score = scoreOcrResult(result.data.text || '') + ((result.data.confidence || 0) / 10);
+    if (!best || score > best.score) {
+      best = { ...result, score, label: candidate.label };
+    }
+  }
+
+  return best;
+}
+
 async function handleReceiptUpload(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -1547,7 +1950,7 @@ async function handleReceiptUpload(event) {
   setReceiptStatus('Sedang membaca isi receipt...', 'processing');
 
   try {
-    const result = await globalThis.Tesseract.recognize(file, 'eng+ind');
+    const result = await recognizeReceiptText(file, receiptImageDataUrl);
     receiptExtraction = extractReceiptData(result.data.text || '');
     fillReceiptToForm(receiptExtraction);
     renderReceiptResult(receiptExtraction);
@@ -1557,7 +1960,7 @@ async function handleReceiptUpload(event) {
       (receiptExtraction.name && receiptExtraction.name !== 'Belanja dari receipt')
     );
     if (hasUsefulData) {
-      setReceiptStatus('Receipt berhasil dibaca. Cek hasilnya lalu simpan.', 'success');
+      setReceiptStatus(`Receipt berhasil dibaca (${result.label}). Cek hasilnya lalu simpan.`, 'success');
     } else {
       setReceiptStatus('Teks receipt terbaca sebagian, tapi detail utama belum yakin. Kamu masih bisa isi manual.', 'error');
     }
