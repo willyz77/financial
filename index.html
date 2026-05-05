@@ -1676,7 +1676,15 @@ function extractTollReceiptData(text, lines) {
   const date = parseReceiptDate(corpus);
   const amount = extractLineAmount(lines, [/gol-?\s*1/i, /e-?toll/i, /rp/i]) || parseReceiptAmount(lines, { bankStyle: false });
   const operatorLine = lines.find(line => /(jasamarga|transjawa tol|waspphutowa|citra waspphutowa)/i.test(line));
-  const gateLine = lines.find(line => /(kl malang|sawangan|gt[o0]|gerbang|tol)/i.test(line) && !/info tol/i.test(line));
+  const gateLine = lines.find(line => {
+    if (/info tol/i.test(line)) return false;
+    if (/(kl malang|sawangan|pejompongan|gt[o0]|gerbang|tol)/i.test(line)) return true;
+    const cleaned = line.replace(/[^A-Za-z\s-]/g, '').trim();
+    if (cleaned.length < 4 || cleaned.length > 30) return false;
+    if (!/^[A-Z\s-]+$/.test(cleaned)) return false;
+    if (/(jasamarga|indonesia highway corporation|info tol)/i.test(cleaned)) return false;
+    return true;
+  });
   const nameParts = [
     operatorLine ? titleCase(operatorLine) : '',
     gateLine ? titleCase(gateLine) : ''
