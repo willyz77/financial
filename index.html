@@ -616,6 +616,98 @@
   .form-g input:focus,
   .form-g select:focus { border-color: var(--income); }
 
+  .receipt-box {
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    background: linear-gradient(180deg, #fbfdfe 0%, var(--surface2) 100%);
+    margin-bottom: 14px;
+  }
+
+  .receipt-box-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .receipt-box-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text);
+  }
+
+  .receipt-box-sub {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .receipt-upload {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 10px;
+    background: #122027;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    overflow: hidden;
+  }
+
+  .receipt-upload input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .receipt-status {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .receipt-status.processing { color: var(--savings); }
+  .receipt-status.success { color: var(--income); }
+  .receipt-status.error { color: var(--expense); }
+
+  .receipt-preview {
+    display: none;
+    width: 100%;
+    max-height: 180px;
+    object-fit: cover;
+    border-radius: 12px;
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+
+  .receipt-preview.visible {
+    display: block;
+  }
+
+  .receipt-result {
+    display: none;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .receipt-result.visible {
+    display: block;
+  }
+
   .type-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 
   .type-tab {
@@ -852,9 +944,25 @@
     </div>
     <div class="modal-body">
       <div class="type-tabs">
-        <button type="button" class="type-tab active income" onclick="setType('income', this)">Pemasukan</button>
-        <button type="button" class="type-tab expense" onclick="setType('expense', this)">Pengeluaran</button>
-        <button type="button" class="type-tab savings" onclick="setType('savings', this)">Tabungan</button>
+        <button type="button" id="typeIncome" class="type-tab active income" onclick="setType('income', this)">Pemasukan</button>
+        <button type="button" id="typeExpense" class="type-tab expense" onclick="setType('expense', this)">Pengeluaran</button>
+        <button type="button" id="typeSavings" class="type-tab savings" onclick="setType('savings', this)">Tabungan</button>
+      </div>
+
+      <div class="receipt-box">
+        <div class="receipt-box-head">
+          <div>
+            <div class="receipt-box-title">Upload Receipt / Nota / Bukti Bayar</div>
+            <div class="receipt-box-sub">Bisa pakai struk belanja, QRIS, transfer bank, atau screenshot e-wallet untuk bantu isi form otomatis.</div>
+          </div>
+          <label class="receipt-upload">
+            Pilih Foto
+            <input type="file" id="receiptFile" accept="image/*">
+          </label>
+        </div>
+        <div id="receiptStatus" class="receipt-status">Belum ada foto yang dipilih.</div>
+        <img id="receiptPreview" class="receipt-preview" alt="Preview nota">
+        <div id="receiptResult" class="receipt-result"></div>
       </div>
 
       <div class="add-form-row">
@@ -884,6 +992,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js';
 import {
@@ -938,6 +1047,8 @@ let txnType = 'income';
 let activeTab = 'overview';
 let idCounter = 20;
 let transactions = loadLocalCache();
+let receiptImageDataUrl = '';
+let receiptExtraction = null;
 let db;
 let auth;
 let currentUser = null;
@@ -1085,6 +1196,377 @@ function typeSymbol(type) {
   return '-';
 }
 
+function setReceiptStatus(message, state = '') {
+  const el = document.getElementById('receiptStatus');
+  if (!el) return;
+  el.className = `receipt-status${state ? ` ${state}` : ''}`;
+  el.textContent = message;
+}
+
+function showReceiptPreview(dataUrl) {
+  const preview = document.getElementById('receiptPreview');
+  if (!preview) return;
+  if (!dataUrl) {
+    preview.removeAttribute('src');
+    preview.classList.remove('visible');
+    return;
+  }
+  preview.src = dataUrl;
+  preview.classList.add('visible');
+}
+
+function renderReceiptResult(extraction) {
+  const box = document.getElementById('receiptResult');
+  if (!box) return;
+  if (!extraction) {
+    box.innerHTML = '';
+    box.classList.remove('visible');
+    return;
+  }
+
+  const chips = [
+    extraction.name ? `Nama: <strong>${extraction.name}</strong>` : '',
+    extraction.typeLabel ? `Jenis: <strong>${extraction.typeLabel}</strong>` : '',
+    extraction.amount ? `Total: <strong>${fmt(extraction.amount)}</strong>` : '',
+    extraction.date ? `Tanggal: <strong>${formatDateLabel(extraction.date)}</strong>` : '',
+    extraction.cat ? `Kategori otomatis: <strong>${extraction.cat}</strong>` : '',
+    extraction.catReason ? `Alasan: <strong>${extraction.catReason}</strong>` : ''
+  ].filter(Boolean);
+
+  box.innerHTML = chips.join(' | ');
+  box.classList.add('visible');
+}
+
+function parseCurrencyValue(raw) {
+  const digits = (raw || '').replace(/[^\d]/g, '');
+  if (!digits) return 0;
+  return Number(digits);
+}
+
+function normalizeReceiptText(text) {
+  return (text || '')
+    .replace(/[|]/g, 'I')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .replace(/[^\x20-\x7E\n\r]/g, ' ')
+    .trim();
+}
+
+function pickReceiptName(lines) {
+  const skipPattern = /(total|subtotal|cash|tunai|change|kembali|date|tanggal|qty|item|diskon|ppn|tax|debit|kredit|terima kasih|thank you|welcome|indomaret|alfamart|invoice|receipt|struk)/i;
+  const candidate = lines.find(line => {
+    const cleaned = line.replace(/[^a-zA-Z0-9\s.&/-]/g, '').trim();
+    if (cleaned.length < 4 || cleaned.length > 40) return false;
+    if (skipPattern.test(cleaned)) return false;
+    const digitCount = (cleaned.match(/\d/g) || []).length;
+    return digitCount <= Math.floor(cleaned.length / 3);
+  });
+  return candidate || 'Belanja dari receipt';
+}
+
+function parseReceiptDate(text) {
+  const numericMatch = text.match(/\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b/);
+  if (numericMatch) {
+    let [, day, month, year] = numericMatch;
+    if (year.length === 2) year = `20${year}`;
+    const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    if (!Number.isNaN(new Date(`${iso}T00:00:00`).getTime())) return iso;
+  }
+
+  const monthMap = {
+    januari: '01', februari: '02', maret: '03', april: '04', mei: '05', juni: '06',
+    juli: '07', agustus: '08', september: '09', oktober: '10', november: '11', desember: '12'
+  };
+  const textMatch = text.toLowerCase().match(/\b(\d{1,2})\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+(\d{4})\b/);
+  if (textMatch) {
+    const [, day, monthName, year] = textMatch;
+    return `${year}-${monthMap[monthName]}-${day.padStart(2, '0')}`;
+  }
+
+  return '';
+}
+
+function parseReceiptAmount(lines) {
+  const amountPattern = /(?:rp\s*)?(\d{1,3}(?:[.,]\d{3})+[.,]?\d{0,2}|\d{4,})/ig;
+  const priorityPattern = /(grand total|total bayar|total belanja|jumlah bayar|amount due|subtotal|total|tunai|cash)/i;
+  const candidates = [];
+
+  lines.forEach((line, index) => {
+    const matches = [...line.matchAll(amountPattern)];
+    matches.forEach(match => {
+      const value = parseCurrencyValue(match[0]);
+      if (!value || value < 100) return;
+      let score = value;
+      if (priorityPattern.test(line)) score += 100000000;
+      if (/kembali|change|diskon|ppn|tax/i.test(line)) score -= 20000000;
+      score -= index * 1000;
+      candidates.push({ value, score });
+    });
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.value || 0;
+}
+
+function buildReceiptCorpus(text, lines) {
+  return [text, ...lines].join(' \n ').toLowerCase();
+}
+
+function guessTransactionType(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const checks = [
+    {
+      type: 'savings',
+      score: 0,
+      patterns: [
+        /top up investasi|beli reksa dana|investasi|deposito/,
+        /dana darurat|tabungan berjangka|saving pocket/
+      ]
+    },
+    {
+      type: 'income',
+      score: 0,
+      patterns: [
+        /uang masuk|dana masuk|incoming transfer|received|diterima|penerimaan/,
+        /cashback|refund|refund berhasil|bonus|gaji|salary|komisi/,
+        /pembayaran diterima|merchant settlement/
+      ]
+    },
+    {
+      type: 'expense',
+      score: 0,
+      patterns: [
+        /qris|qr payment|paylater|berhasil dibayar|transaksi berhasil|payment successful/,
+        /uang keluar|dana keluar|transfer keluar|sent|debit|pembayaran/,
+        /gopay|ovo|dana|shopeepay|linkaja|transfer ke|bayar ke/
+      ]
+    }
+  ];
+
+  checks.forEach(rule => {
+    rule.patterns.forEach(pattern => {
+      if (pattern.test(corpus)) rule.score += 1;
+    });
+  });
+
+  checks.sort((a, b) => b.score - a.score);
+  const winner = checks[0];
+  if (!winner || winner.score === 0) {
+    return { type: 'expense', typeLabel: 'Pengeluaran' };
+  }
+
+  const labels = {
+    income: 'Pemasukan',
+    expense: 'Pengeluaran',
+    savings: 'Tabungan'
+  };
+  return { type: winner.type, typeLabel: labels[winner.type] };
+}
+
+function guessIncomeCategory(text) {
+  const corpus = text.toLowerCase();
+  const rules = [
+    { cat: 'Gaji', pattern: /gaji|salary|payroll|thr/ },
+    { cat: 'Freelance', pattern: /freelance|project|invoice paid|fee/ },
+    { cat: 'Bisnis', pattern: /penjualan|sales|omzet|merchant settlement|usaha/ },
+    { cat: 'Bonus', pattern: /bonus|cashback|reward|insentif|refund/ }
+  ];
+  return rules.find(item => item.pattern.test(corpus))?.cat || 'Lain-lain';
+}
+
+function guessSavingsCategory(text) {
+  const corpus = text.toLowerCase();
+  const rules = [
+    { cat: 'Investasi', pattern: /investasi|reksa dana|saham|emas|deposito/ },
+    { cat: 'Dana Darurat', pattern: /dana darurat|emergency fund/ },
+    { cat: 'Tabungan', pattern: /tabungan|saving|menabung/ }
+  ];
+  return rules.find(item => item.pattern.test(corpus))?.cat || 'Tabungan';
+}
+
+function guessExpenseCategory(text, lines) {
+  const corpus = buildReceiptCorpus(text, lines);
+  const rules = [
+    {
+      cat: 'Transport',
+      weight: 6,
+      patterns: [
+        /grab|gojek|gocar|goride|bluebird|mybluebird|transjakarta|mrt|krl/,
+        /pertamina|shell|bp(?!\w)|spbu|bensin|solar|diesel/,
+        /parkir|tol|e-?toll|toll road|stasiun/
+      ]
+    },
+    {
+      cat: 'Belanja',
+      weight: 5,
+      patterns: [
+        /indomaret|alfamart|superindo|hypermart|transmart|lotte mart|tip top/,
+        /minimarket|supermarket|department store|toko|swalayan|grocery|mart/,
+        /belanja|store|retail|houseware|ace hardware|mr\.? diy|guardian/
+      ]
+    },
+    {
+      cat: 'Makan',
+      weight: 5,
+      patterns: [
+        /resto|restaurant|warung|bakmi|bakso|soto|martabak|mie|ayam|nasi/,
+        /kopi|coffee|cafe|starbucks|tomoro|kenangan|janji jiwa/,
+        /food|kitchen|dapur|eatery|pizza|burger|fried chicken/
+      ]
+    },
+    {
+      cat: 'Hiburan',
+      weight: 5,
+      patterns: [
+        /bioskop|cinema|cinepolis|xxi|game|playstation|timezone/,
+        /spotify|netflix|disney|youtube premium|langganan hiburan/,
+        /karaoke|concert|konser|hiburan/
+      ]
+    },
+    {
+      cat: 'Kesehatan',
+      weight: 5,
+      patterns: [
+        /apotek|kimia farma|guardian health|klinik|hospital|rumah sakit/,
+        /dokter|vitamin|obat|medical|lab|laboratorium/
+      ]
+    },
+    {
+      cat: 'Utilitas',
+      weight: 4,
+      patterns: [
+        /pln|listrik|pam|pdam|air\b|internet|wifi|indihome|biznet/,
+        /telkomsel|xl axiata|indosat|tri\b|smartfren/,
+        /sewa|rent|kos|kontrakan/
+      ]
+    },
+    {
+      cat: 'Cicilan',
+      weight: 5,
+      patterns: [
+        /cicilan|angsuran|installment|loan|pinjaman|kredit/,
+        /leasing|finance|tempo|jatuh tempo/
+      ]
+    }
+  ];
+
+  const scores = rules.map(rule => {
+    const matches = rule.patterns
+      .map(pattern => {
+        const hit = corpus.match(pattern);
+        return hit ? hit[0] : '';
+      })
+      .filter(Boolean);
+    const score = matches.length * rule.weight;
+    return { cat: rule.cat, score, matches };
+  });
+
+  scores.sort((a, b) => b.score - a.score);
+  const winner = scores[0];
+  if (!winner || winner.score === 0) {
+    return { cat: 'Lain-lain', catReason: 'belum ada keyword yang cukup kuat' };
+  }
+
+  const reason = `terdeteksi kata ${winner.matches.slice(0, 3).join(', ')}`;
+  return { cat: winner.cat, catReason: reason };
+}
+
+function extractReceiptData(text) {
+  const normalized = normalizeReceiptText(text);
+  const lines = normalized
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const amount = parseReceiptAmount(lines);
+  const date = parseReceiptDate(normalized);
+  const name = pickReceiptName(lines);
+  const typeGuess = guessTransactionType(normalized, lines);
+  let categoryGuess;
+
+  if (typeGuess.type === 'income') {
+    categoryGuess = { cat: guessIncomeCategory(normalized), catReason: 'terdeteksi pola pemasukan' };
+  } else if (typeGuess.type === 'savings') {
+    categoryGuess = { cat: guessSavingsCategory(normalized), catReason: 'terdeteksi pola tabungan atau investasi' };
+  } else {
+    categoryGuess = guessExpenseCategory(normalized, lines);
+  }
+
+  return {
+    name,
+    amount,
+    date,
+    type: typeGuess.type,
+    typeLabel: typeGuess.typeLabel,
+    cat: categoryGuess.cat,
+    catReason: categoryGuess.catReason,
+    rawText: normalized
+  };
+}
+
+function fillReceiptToForm(extraction) {
+  if (!extraction) return;
+  const typeButtonMap = {
+    income: document.getElementById('typeIncome'),
+    expense: document.getElementById('typeExpense'),
+    savings: document.getElementById('typeSavings')
+  };
+  const nextType = extraction.type || 'expense';
+  setType(nextType, typeButtonMap[nextType]);
+  document.getElementById('txName').value = extraction.name || '';
+  if (extraction.amount) document.getElementById('txAmt').value = extraction.amount;
+  if (extraction.date) document.getElementById('txDate').value = extraction.date;
+  renderCategoryOptions();
+  if (extraction.cat && categoryOptions[nextType]?.includes(extraction.cat)) {
+    document.getElementById('txCat').value = extraction.cat;
+  }
+}
+
+async function fileToDataUrl(file) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleReceiptUpload(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  receiptExtraction = null;
+  receiptImageDataUrl = await fileToDataUrl(file);
+  showReceiptPreview(receiptImageDataUrl);
+  renderReceiptResult(null);
+
+  if (!globalThis.Tesseract) {
+    setReceiptStatus('OCR belum tersedia. Foto tetap tampil, tapi isi form belum bisa dibaca otomatis.', 'error');
+    return;
+  }
+
+  setReceiptStatus('Sedang membaca isi receipt...', 'processing');
+
+  try {
+    const result = await globalThis.Tesseract.recognize(file, 'eng+ind');
+    receiptExtraction = extractReceiptData(result.data.text || '');
+    fillReceiptToForm(receiptExtraction);
+    renderReceiptResult(receiptExtraction);
+    const hasUsefulData = Boolean(
+      receiptExtraction.amount ||
+      receiptExtraction.date ||
+      (receiptExtraction.name && receiptExtraction.name !== 'Belanja dari receipt')
+    );
+    if (hasUsefulData) {
+      setReceiptStatus('Receipt berhasil dibaca. Cek hasilnya lalu simpan.', 'success');
+    } else {
+      setReceiptStatus('Teks receipt terbaca sebagian, tapi detail utama belum yakin. Kamu masih bisa isi manual.', 'error');
+    }
+  } catch (error) {
+    console.error(error);
+    setReceiptStatus('Gagal membaca foto receipt. Coba foto yang lebih terang dan lurus.', 'error');
+  }
+}
+
 function setTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab-btn').forEach(button => {
@@ -1101,14 +1583,16 @@ function toggleAccordion() {
 function setType(type, button) {
   txnType = type;
   document.querySelectorAll('.type-tab').forEach(item => item.classList.remove('active'));
-  button.classList.add('active');
+  if (button) button.classList.add('active');
   renderCategoryOptions();
 }
 
 function renderCategoryOptions() {
   const select = document.getElementById('txCat');
   const options = categoryOptions[txnType];
+  const currentValue = select.value;
   select.innerHTML = options.map(option => `<option>${option}</option>`).join('');
+  if (options.includes(currentValue)) select.value = currentValue;
 }
 
 function openForm() {
@@ -1127,6 +1611,13 @@ function clearForm() {
   document.getElementById('txName').value = '';
   document.getElementById('txAmt').value = '';
   ensureTxDateInput();
+  receiptImageDataUrl = '';
+  receiptExtraction = null;
+  const fileInput = document.getElementById('receiptFile');
+  if (fileInput) fileInput.value = '';
+  showReceiptPreview('');
+  renderReceiptResult(null);
+  setReceiptStatus('Belum ada foto yang dipilih.');
 }
 
 function changeMonth(delta) {
@@ -1494,6 +1985,16 @@ function bindStaticActions() {
       signInGoogle();
     }
   });
+
+  const receiptFile = document.getElementById('receiptFile');
+  if (receiptFile) {
+    receiptFile.addEventListener('change', event => {
+      handleReceiptUpload(event).catch(error => {
+        console.error(error);
+        setReceiptStatus('Ada error saat memproses receipt.', 'error');
+      });
+    });
+  }
 }
 
 function bootstrapApp() {
