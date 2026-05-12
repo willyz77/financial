@@ -2298,18 +2298,10 @@ async function signInGoogle() {
   const provider = new GoogleAuthProvider();
   setSyncStatus('syncing', 'Membuka login Google...');
   try {
-    await signInWithPopup(auth, provider);
+    await signInWithRedirect(auth, provider);
   } catch (error) {
-    if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
-      if (error.code === 'auth/popup-closed-by-user') {
-        setSyncStatus('offline', 'Login dibatalkan');
-        return;
-      }
-      await signInWithRedirect(auth, provider);
-      return;
-    }
     console.error(error);
-    setSyncStatus('error', 'Login Google gagal');
+    setSyncStatus('error', 'Login Google gagal: ' + error.code);
   }
 }
 
@@ -2358,7 +2350,13 @@ function startPlannerListener(user) {
     setSyncStatus('error', 'Akses Firestore ditolak');
   });
 }
+  
+import { getRedirectResult } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-auth.js';
 
+// di dalam bootstrapApp(), sebelum bootstrapAuth():
+getRedirectResult(auth).then(result => {
+  if (result?.user) console.log('Login redirect berhasil:', result.user.email);
+}).catch(err => console.error('Redirect result error:', err.code));
 function bootstrapAuth() {
   if (!auth) {
     setSyncStatus('error', 'Firebase Auth gagal diinisialisasi');
